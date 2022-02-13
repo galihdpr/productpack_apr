@@ -1,0 +1,276 @@
+---
+title: "Product Packaging"
+author: "Galih Dwika Putra R"
+date: "2/12/2022"
+output: html_document
+---
+
+# Tugas
+Projek ini akan memnggunakan studi kasus dari 33.000 data transaksi sebuah perusahaan barang-barang konsumsi. Kita diminta untuk menjawab empat pertanyaan di bawah ini : 
+  1. Item apa saja yang menempati 10 rangking atas jumlah transakksi?
+  2. Item apa saja yang menempatai 10 rangking bawah jumlah transaksi?
+  3. Barang-barang apa yang memiliki aosisasi paling kuat?
+  4. Paket penjualan seperti apa yang bisa dibuat untuk meningkatkan penjualan slow-moving item?
+  
+# Dataset
+Tugas kali ini sudah menyediakan dataset yang lengkap dan memadai. Dataset tersebut bisa dibaca di : 'https://storage.googleapis.com/dqlab-dataset/transaksi_dqlab_retail.tsv'
+
+# Solusi
+
+Dalam projek ini, kita akan melakukan menyelesaikan dalam dua metode. Meskipun disebut berbeda,yang kita lakukan sebenarnya hanyalah mentranslate data ke tipe transactions dengan 2 cara yang berbeda;  untuk penerapan algortime apriori sendiri, tidak akan ada perbedaan. Metode pertama adalah dengan membaca data menggunakan fungsi read.transactions(), dan metode kedua adalah mengoversi dataset melalui binary matrix secara manual.
+
+## Load library dan dataset
+
+```{r arules1, cache=TRUE, include=FALSE}
+library(arules)
+library(tidyverse)
+```
+
+```{r aruels2, cache=TRUE}
+# dataset dengan read.transactions()
+
+trans_data_direct <- read.transactions(file="https://storage.googleapis.com/dqlab-dataset/transaksi_dqlab_retail.tsv", format="single",sep="\t",cols=c(1,2),skip=1)
+
+```
+
+```{r arules3, cache=TRUE}
+# dataset dengan binary matrix
+trans_data_binary <- read.csv(file="https://storage.googleapis.com/dqlab-dataset/transaksi_dqlab_retail.tsv", sep="\t")
+trans_data_binary2 <- trans_data_binary %>%
+  group_by(Kode.Transaksi,Nama.Barang) %>%
+  mutate(jumlah.barang = n()) %>%
+  pivot_wider(names_from = Nama.Barang, values_from = jumlah.barang, values_fill = NA)
+#Menghilangkan variabel Kode.Transaksi karena sudah tidak diperlukan kembali
+trans_data_binary2 <- trans_data_binary2[,-1]
+#Konvert seluruh nilai trans_data_binary2 menjadi boolean logika
+trans_data_binary2 <- apply(trans_data_binary2,2,as.logical)
+# Konvert semua nilai yang NA menjadi FALSE
+trans_data_binary2[(is.na(trans_data_binary2))] <- FALSE
+# binary matrix sudah jadi
+# dari binary matrix ini kemudian kita bisa konversi menjadi data tipe transaksi
+trans_data_binary_final <- as(trans_data_binary2,"transactions")
+```
+
+Sekarang kita cek masing-masing data
+
+```{r arules4, cache=TRUE}
+# Cek data dari direct method
+inspect(trans_data_direct[1:5])
+```
+
+```{r aruels5, cache=TRUE}
+inspect(trans_data_binary_final[1:5])
+```
+Output dari dua pendekatan di atas terdapat sedikit perbadaan, di mana pada 'trans_data_direct' kita masih memiliki kolom 'Transaction.ID', sedangkan pada 'trans_data_binary_final' tidak hanya ada list untuk item. 
+
+Jika keduanya memiliki hasil keseluruhan yang sama, kenapa kita perlu repot-repot menjalankan metode binary matrix. Hal ini karena tidak semua data yang kita perolah nantinya sudah siap pakai seperti contoh di atas. kebanyakan kita akan memperoleh data transaksi mentah yang jika di read langsung dengan read.transactions, akan menghasilkan struktur yang kacau. Oleh karena itu, akan lebih baik jika kita punya beberapa metode untuk menghasilkan data transaksi. 
+
+
+## Tugas 1 : Menemukan top 10 item dengan transaksi terbanyak
+
+Untuk kasus ini sendiri kita juga bisa melakukannya dengan 2 atau lebih metode. Metode yang lebih cepat pertama adalah, menghitungnya dari data class transactions yang sudah kita peroleh. Jangan lupa untuk menyajikannya dalam bentuk dataframe
+
+```{r arules6, cache=TRUE}
+# Menghitung variabel jumlah.transaksi
+jumlah.trans <-sort(itemFrequency(trans_data_direct, type = "absolute"),decreasing = TRUE)[1:10]
+# Mendapatkan item
+item <- names(jumlah.trans)
+top10_direct <- data.frame(item = item, jumlah = jumlah.trans, row.names = NULL)
+top10_direct
+```
+
+Cara kedua bisa kita gunakan dalam kondisi, misalkan, kita belum mengubah data menjadi tipe transactions, dan kita ingin menganalisa dengan kondisi awal data (dalam kasus ini, tersimpan dalam objek 'trans_data_binary') 
+
+```{r arules7, cache=TRUE}
+# Ligat trsuktur data awal
+head(trans_data_binary)
+top10_binary <- trans_data_binary %>%
+  group_by(Nama.Barang) %>%
+  mutate(Jumlah = n()) %>%
+  distinct(Jumlah) %>%
+  arrange(desc(Jumlah)) %>%
+  head(10)
+top10_binary
+```
+
+Kita bisa melakukan plot untuk memberikan tampilan visual pada nilai di atas
+
+```{r arules26, cache=TRUE}
+
+ggplot(top10_binary) + 
+  geom_col(aes(x = reorder(Nama.Barang,-Jumlah),y = Jumlah, fill = Nama.Barang)) +
+  theme(axis.text.x = element_blank()) +
+  scale_fill_discrete(breaks=levels(with(top10_binary,reorder(Nama.Barang,-Jumlah)))) +
+  labs(x = "Nama Barang", y = "Jumlah")
+```
+Barang-barang di atas adalah 10 item dengan jumlah transaksi tertinggi. Kita bisa menyimpannya untuk kemudian dijadikan file tersendiri.
+
+```{r arules8, cache=TRUE}
+write.table(top10_binary, "top10.txt", sep=",")
+```
+
+## Tugas 2 : Menemukan 10 item dengan transaksi terendah
+
+Untuk tugas ini, kita bisa menggunakan dua pendekatan seperti yang di atas. 
+
+```{r arules9, cache=T}
+
+# Menemukan 10 item dengan transaksi terendah melalui itemFrequenxy()
+
+jumlah.trans.2 <- sort(itemFrequency(trans_data_direct, type="absolute"))[1:10]
+item.2 <- names(jumlah.trans.2)
+bottom10_direct <- data.frame(item = item.2, jumlah = jumlah.trans.2, row.names = NULL)
+bottom10_direct
+
+# Menemukan 10 item dengan transaksi terendah melalui data asli
+bottom10 <- trans_data_binary %>%
+  group_by(Nama.Barang) %>%
+  mutate(Jumlah = n()) %>%
+  distinct(Jumlah) %>%
+  arrange(Jumlah) %>%
+  head(10)
+bottom10
+```
+
+Seperti pada top10, kita simpan output dari kode ini, dalam file terpisah
+
+```{r arules10, cache=TRUE}
+write.table(bottom10, "bottom10.txt", sep=",")
+```
+
+Tugas 3 : Menemukan daftar produk dengan hubungan asosiasi yang kuat
+
+Untuk tugas ini, kita anggap saja sedang mencari 10 kombinasi barang dengan asosiasi terkuat.
+
+```{r arules11, cache=TRUE}
+
+# Menganalisa asosiasi product
+
+product_asrule <- apriori(trans_data_binary_final, parameter = list(supp = 0.1, conf = 0.2,
+                                                                    minlen = 2, maxlen =3))
+```
+
+```{r arules12, cache=TRUE}
+inspect(head(product_asrule))
+```
+
+Kita sudah punya rule asosiasi dari data. Sekarang, kita bisa lanjutkan dengan menganalisa kombinasi apa yang memiliki hubungan asosiasi paling tinggi. 
+Indikator yang kita pakai untuk menentukan kekuatan asosiasi adalah nilai 'lift' dari masing-masing kombinasi. Karena lift adalah nilai yang menunjukkan peningkatan probabilitas barang di 'rhs' akan dibeli jika barang di 'lhs' dibeli.  
+
+```{r arules13, cache=TRUE}
+top10_combi <- sort(product_asrule, by = "lift", decreasing = TRUE)[1:10]
+inspect(head(top10_combi,10))
+write(top10_combi,"top 10 combi.txt", sep = ",")
+```
+
+Dengan aturan atau konstrain yang ada (min support 0.1, min confidence 0.2, minimal panjang item set 2 item, dan maksimal item set 3), kita punya 10 kombinasi atau item set dengan nilai lift tertinggi seperti di atas. Kita bisa bilang nilai lift ini tinggi karena lift > 1.
+
+Untuk memudahkan pemahaman, kita bisa memvisualisasikan hasil apriori di atas.
+
+```{r visarules, cache=TRUE}
+# load library arulesViz
+library(arulesViz)
+plot(top10_combi, method = "graph")
+```
+
+Hal menarik dari output di atas adalah, kemungkinan besar toko ini memiliki banyak pelanggan dengan karakter remaja wanita yang trendi atau mungkin sedikit tomboy. Bisa kita lihat kuatnya asosiasi antara tali pinggang gesper pria dengan celana jeans sobek wanita. Pelanggan terbanyak lainnya adalah pria/wanita yang sering berpergian ke acara dengan membawa anaknya (dilihat dari asosiasi kuat antara tas waist bag, sepatu sandal anak, dan serum vitamin). 
+
+Kita tidak bisa bilang hanya 'wanita' saja karena secara 'count' baju batik wanita yang mengindikasikan hal tersebut lebih rendah dari kombinasi tas waist bag, serum, dan sepatu sandal anak. 
+
+Berdasarkan pada output tersebut, kita bisa mempackage produk sebagai berikut :
+
+* Shampoo + ikat pinggang gesper pria + celana jeans sobek wanita
+* Ikat pinggang gesper pria + Celana jeans sobek wanita
+* vitamin + waist bag
+* waist bag + sepatu sandal anak
+* vitamin + waist bag + sepatu sandal anak
+
+## Tugas 4 : Menemukan kombinasi untuk meningkatkan penjualan slow-moving product
+
+Slow-moving product adalah item yang transaksinya jarang, atau dalam kasus toko ini, kita sebut saja tidak terlalu laku. Untuk menemukan kombinasi yang bisa digunakan untuk meningkatkan penjualan item seperti ini, kita bisa tetap menggunakan output dari 'product asrule' tapi hanya menampilkan item-item tidak laris, yang terdapat pada objek 'bottom10' atau 'bottom10_direct'
+
+```{r arules14, cache=TRUE}
+# objek untuk slow moving item
+slow_item <- bottom10$Nama.Barang
+slow_product_arules <- apriori(trans_data_binary_final, parameter = 
+                                 list(supp = 0.0001, conf = 0.2),
+                               appearance = list(default="lhs", rhs=slow_item))
+inspect(head(slow_product_arules))
+```
+
+Kita perlu menulis ulang algoritma apriori untuk memastikan item slow moving bisa menembus parameter support. (di product_arules support minimal 0.1, yang artinya 10 persen dari total transaksi).
+
+Setelah memastikan seluruh produk slow moving sudah masuk dalam algoritma, kita tinggal mencari urutannya berdasar lift.
+
+```{r arules15, cache=TRUE}
+force_combi <- sort(slow_product_arules, by = "lift", decreasing =TRUE)
+```
+
+Sekarang, jika saya melakukan inspect secara langsung, kita mungkin akan mendapat output yang sedikit rumit, karena tidak tertata secara per item dalam slow_moving
+
+Oleh karena itu, saya akan akan mengispect force combi dengan menggunakan subset, untuk mendapat gambaran kombinasi untuk tiap item dalam slow_moving  
+
+```{r arules16, cache=TRUE}
+# Kombinasi untuk Celana Jeans Sobek Pria
+inspect(head(subset(force_combi, rhs %in% "Celana Jeans Sobek Pria")))
+```
+
+```{r arules17, cache=TRUE}
+# Kombinasi terbaik untuk Pelembab
+inspect(head(subset(force_combi, rhs %in% "Pelembab")))
+```
+
+```{r arules18, cache=TRUE}
+inspect(head(subset(force_combi, rhs %in% "Hair Dye")))
+```
+
+```{r arules19, cache=TRUE}
+inspect(head(subset(force_combi, rhs %in% "Dompet Unisex")))
+```
+
+```{r arules20, cache=TRUE}
+inspect(head(subset(force_combi, rhs %in% "Tas Kosmetik")))
+```
+
+```{r arules21, cache=TRUE}
+inspect(head(subset(force_combi, rhs %in% "Stripe Pants")))
+```
+
+```{r arules22, cache=TRUE}
+inspect(head(subset(force_combi, rhs %in% "Tali Ban Ikat Pinggang")))
+```
+
+```{r arules23, cache=TRUE}
+inspect(head(subset(force_combi, rhs %in% "Baju Renang Pria Anak-anak")))
+```
+
+```{r arules24, cache=TRUE}
+inspect(head(subset(force_combi, rhs %in% "Atasan Baju Belang")))
+```
+
+```{r arules25, cache=TRUE}
+inspect(head(subset(force_combi, rhs %in% "Tas Sekolah Anak Perempuan")))
+```
+
+Ada alasan lain, selain untuk memperjelas output apriori per item, kenapa kita melakukan inspect untuk masing-masing slow moving item seperti di atas. Pertama, dengan analisa individual seperti ini, kita bisa benar-benar memastikan upaya packaging product dilakukan pada item yang bisa yang masih bisa 'diselamatkan'.
+
+Seperti kita lihat, dengan analisa di atas, pengambil keputusan bisa melihat pada nilai liftnya, dan menggunakan judgement berdasarkan nilai tersebut, untuk melihat kelayakan produk. Dari kasus di atas, kita bisa mengambil keputusan bahwa 'celana jeans sobek pria', 'pelembab', 'tas kosmetik', 'stripe pants', 'tali ban ikat pinggang', dan 'baju renang pria anak-anak' mungkin masih layak diperjuangkan dengan langkah pemaketan produk, karena lift nya di atas 100. 
+
+# Rekomendasi Paket Produk
+
+Dengan membandingkan antara produk yang paling laris dengan produk yang paling tidak laris, lalu menganalisa asosiasi antar produk menggunakan algoritma apriori, setidaknya ada 5 rekomendasi paket produk yang bisa kita buat untuk meningkatkan penjualan item slow moving.
+diantaranya :
+
+```
+1. Tali Pinggang Gesper Pria + Celana Jeans Sobek Wanita ---> Pelembab
+2. Sepatu Sport Merk Z --- > Pelembab
+3. Tali Pinggang Gesper Pria + Tali Ban Ikat Pinggang
+4. Wedges Hitam + Tali Ban Ikat Pinggang
+5. Wedges Hitam + atasan baju belang
+```
+Rekomendasi ini dibuat berdasarkan nilai lift dalam asosiasi antar item, yang kemudian dicocokkan mana item top 10 yang memiliki asosiasi kuat dengan item di bottom 10. 
+
+# Kekurangan Analisa
+
+1. Rekomendasi paket produk dibuat dengan mencocokkan antara top 10 item yang memiliki asosiasi lift >100 dengan slow-moving item; pada realitanya, hasil analisa menunjukkan asosiasi ini muncul saat top 10 item dibeli bersama beberapa item lain. Belum diketahui apa efek pemaketan produk ini jika tidak melibatkan item lain yang menyertai asosiasi.
+2. Dibutuhkan pengetahuan dan analisa tentang segmentasi customer pada top 10 item, sehingga kita bisa mendapat gambaran yang lebih baik tentang profil customer, dan membuat paket produk yang lebih sesuai. Analisa ini bisa dilakukan dengan algoritma K-means clustering.
